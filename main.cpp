@@ -35,6 +35,74 @@ int initSdl(const char* windowName, int w, int h, SDL_WindowFlags flags)
 	return 0;
 }
 
+constexpr const char* vertexShaderSource = R"(
+#version 430 core
+
+layout (location = 0) in vec2 i_pos;
+layout (location = 1) in vec2 i_texture_coord;
+
+out vec2 o_texture_coord;
+
+void main() {
+  gl_Position = vec4(i_pos, 0.0, 1.0);
+  o_texture_coord = i_texture_coord;
+}
+)";
+constexpr const char* fragmentShaderSource = R"(
+#version 430 core
+
+in vec2 o_texture_coord;
+
+out vec4 o_color;
+
+uniform usampler2D u_texture;
+void main() {
+  uint pixel = texture(u_texture, o_texture_coord).r;
+  // Gotta love BE vs LE (X360 works in BGRA, so we work in ARGB)
+  float a = float((pixel >> 24) & 0xFF) / 255.0;
+  float r = float((pixel >> 16) & 0xFF) / 255.0;
+  float g = float((pixel >> 8) & 0xFF) / 255.0;
+  float b = float((pixel >> 0) & 0xFF) / 255.0;
+  o_color = vec4(r, g, b, a);
+}
+)";
+constexpr const char* computeShaderSource = R"(
+#version 430 core
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout (r32ui, binding = 0) uniform writeonly uimage2D o_texture;
+layout (std430, binding = 1) buffer pixel_buffer
+{
+  uint pixel_data[];
+};
+uniform int resWidth;
+uniform int resHeight;
+
+// This is black magic to convert tiles to linear, just don't touch it
+int xeFbConvert(int width, int addr) {
+  int y = addr / (width * 4);
+  int x = (addr % (width * 4)) / 4;
+  return ((((y & ~31) * width) + (x & ~31) * 32) +
+         (((x & 3) + ((y & 1) << 2) + ((x & 28) << 1) + ((y & 30) << 5)) ^ 
+         ((y & 8) << 2)));
+}
+
+void main() {
+  ivec2 texel_pos = ivec2(gl_GlobalInvocationID.xy);
+  // OOB check, but shouldn't be needed
+  if (texel_pos.x >= resWidth || texel_pos.y >= resHeight)
+    return;
+
+  // God only knows how this indexing works
+  int stdIndex = (texel_pos.y * resWidth + texel_pos.x);
+  int xeIndex = xeFbConvert(resWidth, stdIndex * 4);
+
+  uint packedColor = pixel_data[xeIndex]; 
+  imageStore(o_texture, texel_pos, uvec4(packedColor, 0, 0, 0));
+}
+)";
+
 void compileShader(GLuint shader, const char* source)
 {
     glShaderSource(shader, 1, &source, nullptr);
@@ -67,19 +135,13 @@ GLuint createShaderProgram(const char* vertex, const char* fragment)
 
 void initShaders()
 {
-    std::ifstream computeShaderFile{ "shaders/computeShader.glsl" };
-    std::string computeShaderSrc = { (std::istreambuf_iterator<char>(computeShaderFile)), std::istreambuf_iterator<char>() };
-    std::ifstream fragmentShaderFile{ "shaders/fragmentShader.glsl" };
-    std::string fragmentShaderSrc = { (std::istreambuf_iterator<char>(fragmentShaderFile)), std::istreambuf_iterator<char>() };
-    std::ifstream vertexShaderFile{ "shaders/vertexShader.glsl" };
-    std::string vertexShaderSrc = { (std::istreambuf_iterator<char>(vertexShaderFile)), std::istreambuf_iterator<char>() };
     GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
-    compileShader(computeShader, computeShaderSrc.data());
+    compileShader(computeShader, computeShaderSource);
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, computeShader);
     glLinkProgram(shaderProgram);
     glDeleteShader(computeShader);
-    renderShaderProgram = createShaderProgram(vertexShaderSrc.data(), fragmentShaderSrc.data());
+    renderShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
 }
 
 void initTexture()
@@ -93,16 +155,13 @@ void initTexture()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 }
-#define COLOR(r, g, b, a) ( \
-(a) << 24 | \
-(r) << 16 | \
-(g) << 8  | \
-(b) << 0    \
-)
+
+// ARGB (Console is BGRA)
+#define COLOR(r, g, b, a) ((a) << 24 | (r) << 16 | (g) << 8  | (b) << 0)
 
 
 int pitch = resWidth * resHeight * sizeof(uint32_t);
-std::vector<uint32_t> pixels(pitch, COLOR(255, 255, 255, 255)); // Init with white
+std::vector<uint32_t> pixels(pitch, COLOR(30, 30, 30, 255)); // Init with dark grey
 void initPixelBuffer()
 {
 	glGenBuffers(1, &pixelBuffer);
@@ -139,7 +198,7 @@ void computeDispatch()
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
     glUniform1i(glGetUniformLocation(shaderProgram, "resWidth"), resWidth);
     glUniform1i(glGetUniformLocation(shaderProgram, "resHeight"), resHeight);
-    glDispatchCompute((resWidth + 15) / 16, (resHeight + 15) / 16, 1);
+    glDispatchCompute(resWidth / 16, resHeight / 16, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
 }
 
@@ -181,54 +240,18 @@ void initOpenGL()
     SDL_GL_SetSwapInterval(1);
 }
 
-void updatePixelBuffer(std::vector<uint32_t>& newPixelData)
+void passPixelBuffer(uint32_t* data, size_t size)
 {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, newPixelData.size() * sizeof(uint32_t), newPixelData.data());
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size * sizeof(*data), data);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-}
-
-static inline int xeFbConvert(const int resWidth, const int addr) {\
-    const int y = addr / (resWidth * 4);
-    const int x = addr % (resWidth * 4) / 4;
-    const uint64_t offset =
-        ((((y & ~31) * resWidth) + (x & ~31) * 32) +
-        (((x & 3) + ((y & 1) << 2) + ((x & 28) << 1) + ((y & 30) << 5)) ^
-        ((y & 8) << 2)));
-    return offset;
-}
-
-#define XE_PIXEL_TO_STD_ADDR(x, y) (y * resWidth + x) * 4
-#define XE_PIXEL_TO_XE_ADDR(x, y)                                              \
-  xeFbConvert(resWidth, XE_PIXEL_TO_STD_ADDR(x, y))
-
-void ConvertFramebufferCPU(std::vector<uint32_t>& outputBuffer, uint8_t* xeFramebuffer, int resWidth, int resHeight)
-{
-    uint32_t* xeCursed = reinterpret_cast<uint32_t*>(xeFramebuffer);
-    int stdPixPos = 0;
-    int xePixPos = 0;
-    for (int y = 0; y < resHeight; y++)
-    {
-        for (int x = 0; x < resWidth; x++)  
-        {
-            stdPixPos = XE_PIXEL_TO_STD_ADDR(x, y);
-            xePixPos = XE_PIXEL_TO_XE_ADDR(x, y);
-            /*uint8_t b = xeFramebuffer[xePixPos];
-            uint8_t r = xeFramebuffer[xePixPos + 1];
-            uint8_t g = xeFramebuffer[xePixPos + 2];
-            uint8_t a = xeFramebuffer[xePixPos + 3];
-            outputBuffer[stdPixPos / 4] = COLOR(r, g, b, a);*/
-            outputBuffer[stdPixPos / 4] = xeCursed[xePixPos];
-        }
-    }
 }
 
 std::unique_ptr<uint8_t[]> buffer = std::make_unique<uint8_t[]>(pitch * 4);
 void render()
 {
     uint8_t* fbPointer = buffer.get();
-    ConvertFramebufferCPU(pixels, fbPointer, resWidth, resHeight);
-	updatePixelBuffer(pixels);
+    passPixelBuffer(reinterpret_cast<uint32_t*>(buffer.get()), pitch);
     computeDispatch();
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
     glClear(GL_COLOR_BUFFER_BIT);
