@@ -1,5 +1,6 @@
 *.log
 *.exe
 *.pdb
+.vscode
 build
 dist    
