@@ -1,3 +1,0 @@
-C:/Users/Vali/Desktop/ogl-sdl3/dist/CMakeFiles/ogl-sdl3.dir
-C:/Users/Vali/Desktop/ogl-sdl3/dist/CMakeFiles/edit_cache.dir
-C:/Users/Vali/Desktop/ogl-sdl3/dist/CMakeFiles/rebuild_cache.dir

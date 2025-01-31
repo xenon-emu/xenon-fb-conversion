@@ -1,3 +1,0 @@
-"C:\Program Files\MinGW\bin\cmake.exe" -E rm -f CMakeFiles\ogl-sdl3.dir/objects.a
-C:\PROGRA~1\MinGW\bin\ar.exe qc CMakeFiles\ogl-sdl3.dir/objects.a @CMakeFiles\ogl-sdl3.dir\objects1.rsp
-C:\PROGRA~1\MinGW\bin\C__~1.EXE -static -Wl,--whole-archive CMakeFiles\ogl-sdl3.dir/objects.a -Wl,--no-whole-archive -o ogl-sdl3.exe -Wl,--out-implib,libogl-sdl3.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\ogl-sdl3.dir\linkLibs.rsp
