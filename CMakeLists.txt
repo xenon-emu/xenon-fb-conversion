@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-set(projectname ogl-sdl3)
+set(projectname xenon-fb-conversion)
 project(${projectname})
 add_executable(${projectname})
 
