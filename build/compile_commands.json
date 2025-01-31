@@ -1,0 +1,14 @@
+[
+{
+  "directory": "C:/Users/Vali/Desktop/ogl-sdl3/build",
+  "command": "C:\\PROGRA~1\\MICROS~1\\2022\\COMMUN~1\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe -IC:/Users/Vali/Desktop/ogl-sdl3/glad/include -I\"C:/Program Files/SDL3/x86_64-w64-mingw32/include\" -O0 -g -Xclang -gcodeview -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\ogl-sdl3.dir\\main.cpp.obj -c C:\\Users\\Vali\\Desktop\\ogl-sdl3\\main.cpp",
+  "file": "C:\\Users\\Vali\\Desktop\\ogl-sdl3\\main.cpp",
+  "output": "CMakeFiles\\ogl-sdl3.dir\\main.cpp.obj"
+},
+{
+  "directory": "C:/Users/Vali/Desktop/ogl-sdl3/build",
+  "command": "C:\\PROGRA~1\\MICROS~1\\2022\\COMMUN~1\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe -IC:/Users/Vali/Desktop/ogl-sdl3/glad/include -I\"C:/Program Files/SDL3/x86_64-w64-mingw32/include\" -O0 -g -Xclang -gcodeview -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\ogl-sdl3.dir\\glad\\src\\glad.c.obj -c C:\\Users\\Vali\\Desktop\\ogl-sdl3\\glad\\src\\glad.c",
+  "file": "C:\\Users\\Vali\\Desktop\\ogl-sdl3\\glad\\src\\glad.c",
+  "output": "CMakeFiles\\ogl-sdl3.dir\\glad\\src\\glad.c.obj"
+}
+]
