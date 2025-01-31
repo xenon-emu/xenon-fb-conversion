@@ -8,12 +8,14 @@
 #define GL_GLEXT_PROTOTYPES
 #include <KHR/khrplatform.h>
 #include <glad/glad.h>
+#define TILE(x) ((((x) + 31) >> 5) << 5)
 
 SDL_Window* window;
 SDL_GLContext context;
 GLuint texture, shaderProgram, pixelBuffer;
 GLuint quadVAO, quadVBO, renderShaderProgram;
-int resWidth = 1280, resHeight = 720;
+int resWidth = TILE(1280);
+int resHeight = TILE(720);
 
 int initSdl(const char* windowName, int w, int h, SDL_WindowFlags flags)
 {
@@ -51,10 +53,10 @@ uniform usampler2D u_texture;
 
 void main() {
   uint pixel = texture(u_texture, o_texture_coord).r;
-  float b = float((pixel >> 0)  & 0xFF) / 255.0;
-  float g = float((pixel >> 8)  & 0xFF) / 255.0;
-  float r = float((pixel >> 16) & 0xFF) / 255.0;
   float a = float((pixel >> 24) & 0xFF) / 255.0;
+  float r = float((pixel >> 16) & 0xFF) / 255.0;
+  float g = float((pixel >> 8)  & 0xFF) / 255.0;
+  float b = float((pixel >> 0)  & 0xFF) / 255.0;
   o_color = vec4(r, g, b, a);
 }
 )";
@@ -147,9 +149,14 @@ void initTexture()
 	glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 }
 
-#define COLOR(r, g, b, a) ((b) | (g) << 8 | (r) << 16 | (a) << 24)
+#define COLOR(r, g, b, a) ( \
+(a) << 24 | \
+(r) << 16 | \
+(g) << 8  | \
+(b) << 0    \
+)
 int pitch = resWidth * resHeight;
-std::vector<uint32_t> pixels(pitch, COLOR(0, 255, 0, 255)); // Init with red
+std::vector<uint32_t> pixels(pitch, COLOR(0, 0, 0, 255)); // Init with black
 void initPixelBuffer()
 {
 	glGenBuffers(1, &pixelBuffer);
@@ -163,10 +170,10 @@ void initQuad()
     constexpr float quadVertices[]
 	{
         // Positions   Texture coords
-        -1.0f, -1.0f,  0.0f, 0.0f,
-        1.0f , -1.0f,  1.0f, 0.0f,
-        1.0f ,  1.0f,  1.0f, 1.0f,
-        -1.0f,  1.0f,  0.0f, 1.0f
+        -1.0f, -1.0f,  0.0f, 1.0f,
+        1.0f , -1.0f,  1.0f, 1.0f,
+        1.0f ,  1.0f,  1.0f, 0.0f,
+        -1.0f,  1.0f,  0.0f, 0.0f
     };
 
     glGenVertexArrays(1, &quadVAO);
@@ -235,32 +242,46 @@ void updatePixelBuffer(std::vector<uint32_t>& newPixelData)
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
-int xeFbConvert(const int addr)
+int xeFbConvert(int resWidth, int x, int y)
 {
-  int y = addr / (resWidth * 4);
-  int x = addr % (resWidth * 4) / 4;
-  double offset =
-        ((((y & ~31) * resWidth) + (x & ~31) * 32) +
-         (((x & 3) + ((y & 1) << 2) + ((x & 28) << 1) + ((y & 30) << 5)) ^
-          ((y & 8) << 2))) * 4;
-  return int(offset);
+    // Tile-aligned base offset
+    int tile_aligned_y = (y & ~31) * resWidth;  // Y alignment
+    int tile_aligned_x = (x & ~31) * 32;        // X alignment
+
+    // Morton-order within-tile offset
+    int local_x = x & 3;         // Bits 0-1 of X
+    int local_y = y & 1;         // Bit 0 of Y
+    int block_x = (x & 28) << 1; // Bits 2-4 of X
+    int block_y = (y & 30) << 5; // Bits 1-4 of Y
+    int xor_mask = (y & 8) << 2; // Bit 3 of Y
+
+    int local_offset = local_x + (local_y << 2) + block_x + block_y;
+    int final_offset = (tile_aligned_y + tile_aligned_x) + (local_offset ^ xor_mask);
+
+    return final_offset * 4;  // FIX: Ensure we get the right BGRA byte offset
 }
 
 #define XE_PIXEL_TO_STD_ADDR(x, y) (y * resWidth + x)
-#define XE_PIXEL_TO_XE_ADDR(x, y)                                              \
-  xeFbConvert(XE_PIXEL_TO_STD_ADDR(x, y))
+#define XE_PIXEL_TO_XE_ADDR(x, y) xeFbConvert(resWidth, x, y)
 
 void ConvertFramebufferCPU(std::vector<uint32_t>& outputBuffer, uint8_t* xeFramebuffer, int resWidth, int resHeight)
 {
-  int stdPixPos = 0;
-  int xePixPos = 0;
-  for (int x = 0; x < resWidth; x++) {
-    for (int y = 0; y < resHeight; y++) {
-      stdPixPos = XE_PIXEL_TO_STD_ADDR(x, y);
-      xePixPos = XE_PIXEL_TO_XE_ADDR(x, y);
-      memcpy(reinterpret_cast<uint8_t*>(outputBuffer.data()) + stdPixPos, xeFramebuffer + xePixPos, 4);
+    uint8_t* pixels = reinterpret_cast<uint8_t*>(outputBuffer.data());
+    int stdPixPos = 0;
+    int xePixPos = 0;
+    for (int y = 0; y < resHeight; y++)
+    {
+        for (int x = 0; x < resWidth; x++)
+        {       
+            stdPixPos = XE_PIXEL_TO_STD_ADDR(x, y);
+            xePixPos = XE_PIXEL_TO_XE_ADDR(x, y);
+            uint8_t b = xeFramebuffer[xePixPos];
+            uint8_t r = xeFramebuffer[xePixPos + 1];
+            uint8_t g = xeFramebuffer[xePixPos + 2];
+            uint8_t a = xeFramebuffer[xePixPos + 3];
+            outputBuffer[stdPixPos / 4] = COLOR(r, g, b, a);
+        }
     }
-  }
 }
 
 std::unique_ptr<uint8_t[]> buffer = std::make_unique<uint8_t[]>(pitch * 4);
@@ -281,6 +302,10 @@ void render()
 
 int main()
 {
+	resWidth = ((resWidth + 31) >> 5) << 5;
+	resHeight = ((resHeight + 31) >> 5) << 5;
+    std::cout << "Width: " << resWidth << std::endl;
+    std::cout << "Height: " << resHeight << std::endl;
     if (initSdl("OpenGL Window", resWidth, resHeight, SDL_WINDOW_OPENGL) != 0)
         return 1;
         
