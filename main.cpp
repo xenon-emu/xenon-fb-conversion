@@ -259,18 +259,11 @@ void render()
     // Stop anything from updating texture after finishing CS
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
 
-    // Clear everything
-    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-
     // Draw fullscreen rect
     glUseProgram(renderShaderProgram);
     glBindTexture(GL_TEXTURE_2D, texture);
     glBindVertexArray(dummyVAO);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-    // Unbind texture and verts
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glBindVertexArray(0);
 
     // Swap
     SDL_GL_SwapWindow(window);
