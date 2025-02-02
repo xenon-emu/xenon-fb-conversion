@@ -188,22 +188,6 @@ void initPixelBuffer()
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
-void initQuad()
-{
-    // Create a dummy VBO
-    GLuint dummy{};
-    glGenVertexArrays(1, &dummyVAO);
-    glGenBuffers(1, &dummy);
-    // Bind verts
-    glBindVertexArray(dummyVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, dummy);
-    // Unbind buffers
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    // Nuke out the dummy VBO
-    glDeleteBuffers(1, &dummy);
-}
-
 void computeDispatch()
 {
     glUseProgram(shaderProgram);
@@ -243,11 +227,14 @@ void initOpenGL()
     initShaders();
     initTexture();
     initPixelBuffer();
-    initQuad();
-    glClearColor(0.7f, 0.7f, 0.7f, 1.f);
+    // Creat a dummy VAO
+    glGenVertexArrays(1, &dummyVAO);
+    // Setup viewport
     glViewport(0, 0, resWidth, resHeight);
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
+
+    glClearColor(0.7f, 0.7f, 0.7f, 1.f);
 
     SDL_GL_SetSwapInterval(0);
     SDL_SetWindowFullscreen(window, false);
