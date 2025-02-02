@@ -174,6 +174,7 @@ void initTexture()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+    glBindBuffer(GL_TEXTURE_2D, 0);
 }
 
 // ARGB (Console is BGRA)
@@ -184,7 +185,7 @@ void initPixelBuffer()
 {
     glGenBuffers(1, &pixelBuffer);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, pixels.size() * sizeof(uint32_t), pixels.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, pixels.size(), pixels.data(), GL_DYNAMIC_DRAW);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
@@ -201,14 +202,18 @@ void initQuad()
 
     glGenVertexArrays(1, &quadVAO);
     glGenBuffers(1, &quadVBO);
+    // Bind verts
     glBindVertexArray(quadVAO);
     glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-
+    // Setup attributes
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    // Unbind buffers
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 void computeDispatch()
@@ -271,15 +276,28 @@ std::unique_ptr<uint8_t[]> buffer = std::make_unique<uint8_t[]>(pitch * 4);
 void render()
 {
     passPixelBuffer(reinterpret_cast<uint32_t*>(buffer.get()), pitch);
+    // Dispatch compute shader to unswizzle data
     computeDispatch();
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
-    glClear(GL_COLOR_BUFFER_BIT);
+    // Clear everything
+    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+    // Draw fullscreen rect
     glUseProgram(renderShaderProgram);
     glBindTexture(GL_TEXTURE_2D, texture);
     glBindVertexArray(quadVAO);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
+    // Unbind texture and verts
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(0);
+    // Swap
     SDL_GL_SwapWindow(window);
+}
+
+void shutdownRender()
+{
+    glDeleteProgram(shaderProgram);
+    SDL_GL_DestroyContext(context);
+    SDL_DestroyWindow(window);
 }
 
 int main()
@@ -316,8 +334,7 @@ int main()
         render();
     }
 
-    SDL_GL_DestroyContext(context);
-    SDL_DestroyWindow(window);
+    shutdownRender();
     SDL_Quit();
     return 0;
 }
