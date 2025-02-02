@@ -13,7 +13,7 @@
 SDL_Window* window;
 SDL_GLContext context;
 GLuint texture, shaderProgram, pixelBuffer;
-GLuint quadVAO, quadVBO, renderShaderProgram;
+GLuint dummyVAO, renderShaderProgram;
 int resWidth = TILE(1280);
 int resHeight = TILE(720);
 int internalWidth = 1280;
@@ -40,14 +40,13 @@ int initSdl(const char* windowName, int w, int h, SDL_WindowFlags flags)
 constexpr const char* vertexShaderSource = R"(
 #version 430 core
 
-layout (location = 0) in vec2 i_pos;
-layout (location = 1) in vec2 i_texture_coord;
-
 out vec2 o_texture_coord;
 
+// https://www.gamedev.net/forums/topic/609917-full-screen-quad-without-vertex-buffer/
+// HOWEVER, the OpenGL spec needs a VAO still. This means we can get away with using less data at least
 void main() {
-  gl_Position = vec4(i_pos, 0.0, 1.0);
-  o_texture_coord = i_texture_coord;
+  o_texture_coord = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  gl_Position = vec4(o_texture_coord * vec2(2.0f, -2.0f) + vec2(-1.0f, 1.0f), 0.0f, 1.0f);
 }
 )";
 constexpr const char* fragmentShaderSource = R"(
@@ -191,29 +190,18 @@ void initPixelBuffer()
 
 void initQuad()
 {
-    constexpr float quadVertices[]
-    {
-        // Positions  Texture coords
-        -1.0f, -1.0f,  0.0f, 1.0f,
-        1.0f , -1.0f,  1.0f, 1.0f,
-        1.0f ,  1.0f,  1.0f, 0.0f,
-        -1.0f,  1.0f,  0.0f, 0.0f
-    };
-
-    glGenVertexArrays(1, &quadVAO);
-    glGenBuffers(1, &quadVBO);
+    // Create a dummy VBO
+    GLuint dummy{};
+    glGenVertexArrays(1, &dummyVAO);
+    glGenBuffers(1, &dummy);
     // Bind verts
-    glBindVertexArray(quadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-    // Setup attributes
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
+    glBindVertexArray(dummyVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, dummy);
     // Unbind buffers
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // Nuke out the dummy VBO
+    glDeleteBuffers(1, &dummy);
 }
 
 void computeDispatch()
@@ -275,20 +263,28 @@ void passPixelBuffer(uint32_t* data, size_t size)
 std::unique_ptr<uint8_t[]> buffer = std::make_unique<uint8_t[]>(pitch * 4);
 void render()
 {
+    // Send over the buffer with the 360fb that is swizzled
     passPixelBuffer(reinterpret_cast<uint32_t*>(buffer.get()), pitch);
+
     // Dispatch compute shader to unswizzle data
     computeDispatch();
+
+    // Stop anything from updating texture after finishing CS
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+
     // Clear everything
     glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
     // Draw fullscreen rect
     glUseProgram(renderShaderProgram);
     glBindTexture(GL_TEXTURE_2D, texture);
-    glBindVertexArray(quadVAO);
+    glBindVertexArray(dummyVAO);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
     // Unbind texture and verts
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
+
     // Swap
     SDL_GL_SwapWindow(window);
 }
