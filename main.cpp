@@ -16,23 +16,25 @@ GLuint texture, shaderProgram, pixelBuffer;
 GLuint quadVAO, quadVBO, renderShaderProgram;
 int resWidth = TILE(1280);
 int resHeight = TILE(720);
+int internalWidth = 1280;
+int internalHeight = 720;
 
 int initSdl(const char* windowName, int w, int h, SDL_WindowFlags flags)
 {
     if (!SDL_Init(SDL_INIT_VIDEO))
-	{
+    {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
         return 1;
     }
-	
-	window = SDL_CreateWindow(windowName, w, h, flags);
+
+    window = SDL_CreateWindow(windowName, w, h, flags);
 
     if (!window)
-	{
+    {
         SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
         return 1;
     }
-	return 0;
+    return 0;
 }
 
 constexpr const char* vertexShaderSource = R"(
@@ -76,6 +78,10 @@ layout (std430, binding = 1) buffer pixel_buffer
 {
   uint pixel_data[];
 };
+
+uniform int internalWidth;
+uniform int internalHeight;
+
 uniform int resWidth;
 uniform int resHeight;
 
@@ -88,17 +94,31 @@ int xeFbConvert(int width, int addr) {
          ((y & 8) << 2)));
 }
 
+#define TILE(x) ((x + 31) >> 5) << 5
+
 void main() {
   ivec2 texel_pos = ivec2(gl_GlobalInvocationID.xy);
   // OOB check, but shouldn't be needed
   if (texel_pos.x >= resWidth || texel_pos.y >= resHeight)
     return;
 
-  // God only knows how this indexing works
-  int stdIndex = (texel_pos.y * resWidth + texel_pos.x);
-  int xeIndex = xeFbConvert(resWidth, stdIndex * 4);
+  // Precalc whatever it would be with extra sizing for 32x32 tiles
+  int tiledWidth = TILE(internalWidth);
+  int tiledHeight = TILE(internalHeight);
 
-  uint packedColor = pixel_data[xeIndex]; 
+  // Scale accordingly
+  float scaleX = tiledWidth / float(resWidth);
+  float scaleY = tiledHeight / float(resHeight);
+
+  // Map to source resolution
+  int srcX = int(float(texel_pos.x) * scaleX);
+  int srcY = int(float(texel_pos.y) * scaleY);
+
+  // God only knows how this indexing works
+  int stdIndex = (srcY * tiledWidth + srcX);
+  int xeIndex = xeFbConvert(tiledWidth, stdIndex * 4);
+
+  uint packedColor = pixel_data[xeIndex];
   imageStore(o_texture, texel_pos, uvec4(packedColor, 0, 0, 0));
 }
 )";
@@ -146,34 +166,32 @@ void initShaders()
 
 void initTexture()
 {
-	glGenTextures(1, &texture);
-	glBindTexture(GL_TEXTURE_2D, texture);
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, resWidth, resHeight);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+    glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 }
 
 // ARGB (Console is BGRA)
 #define COLOR(r, g, b, a) ((a) << 24 | (r) << 16 | (g) << 8  | (b) << 0)
-
-
 int pitch = resWidth * resHeight * sizeof(uint32_t);
 std::vector<uint32_t> pixels(pitch, COLOR(30, 30, 30, 255)); // Init with dark grey
 void initPixelBuffer()
 {
-	glGenBuffers(1, &pixelBuffer);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
-	glBufferData(GL_SHADER_STORAGE_BUFFER, pixels.size() * sizeof(uint32_t), pixels.data(), GL_DYNAMIC_DRAW);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    glGenBuffers(1, &pixelBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, pixels.size() * sizeof(uint32_t), pixels.data(), GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 void initQuad()
 {
     constexpr float quadVertices[]
-	{
+    {
         // Positions  Texture coords
         -1.0f, -1.0f,  0.0f, 1.0f,
         1.0f , -1.0f,  1.0f, 1.0f,
@@ -186,6 +204,7 @@ void initQuad()
     glBindVertexArray(quadVAO);
     glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
@@ -196,6 +215,8 @@ void computeDispatch()
 {
     glUseProgram(shaderProgram);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, pixelBuffer);
+    glUniform1i(glGetUniformLocation(shaderProgram, "internalWidth"), internalWidth);
+    glUniform1i(glGetUniformLocation(shaderProgram, "internalHeight"), internalHeight);
     glUniform1i(glGetUniformLocation(shaderProgram, "resWidth"), resWidth);
     glUniform1i(glGetUniformLocation(shaderProgram, "resHeight"), resHeight);
     glDispatchCompute(resWidth / 16, resHeight / 16, 1);
@@ -205,7 +226,7 @@ void computeDispatch()
 void initOpenGL()
 {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);  
+    SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
@@ -230,27 +251,25 @@ void initOpenGL()
     initTexture();
     initPixelBuffer();
     initQuad();
+    glClearColor(0.7f, 0.7f, 0.7f, 1.f);
     glViewport(0, 0, resWidth, resHeight);
-	glDisable(GL_BLEND);
-    //glEnable(GL_BLEND);
-    //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
-	glClearColor(0.7f, 0.7f, 0.7f, 1.f);
 
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(0);
+    SDL_SetWindowFullscreen(window, false);
 }
 
 void passPixelBuffer(uint32_t* data, size_t size)
 {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size * sizeof(*data), data);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, pitch, data);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 std::unique_ptr<uint8_t[]> buffer = std::make_unique<uint8_t[]>(pitch * 4);
 void render()
 {
-    uint8_t* fbPointer = buffer.get();
     passPixelBuffer(reinterpret_cast<uint32_t*>(buffer.get()), pitch);
     computeDispatch();
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
@@ -270,7 +289,7 @@ int main()
     SDL_WindowFlags flags = SDL_WINDOW_OPENGL;
     if (initSdl("OpenGL Window", resWidth, resHeight, flags) != 0)
         return 1;
-        
+
     std::ifstream f("fbmem.bin", std::ios::in | std::ios::binary);
     if (!f)
     {
@@ -283,7 +302,7 @@ int main()
     f.close();
 
     initOpenGL();
-    
+
     bool running = true;
     SDL_Event event;
     while (running)
@@ -293,12 +312,12 @@ int main()
             if (event.type == SDL_EVENT_QUIT)
                 running = false;
         }
-        
+
         render();
     }
-    
+
     SDL_GL_DestroyContext(context);
     SDL_DestroyWindow(window);
     SDL_Quit();
-	return 0;
+    return 0;
 }
