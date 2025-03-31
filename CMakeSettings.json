@@ -1,0 +1,15 @@
+﻿{
+  "configurations": [
+    {
+      "name": "x64-MSVC-Release",
+      "generator": "Ninja",
+      "configurationType": "Release",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "buildRoot": "${projectDir}\\Build\\${name}",
+      "installRoot": "${projectDir}\\Install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": ""
+    }
+  ]
+}
