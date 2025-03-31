@@ -1,23 +1,29 @@
+# Copyright 2025 Xenon Emulator Project
+
 cmake_minimum_required(VERSION 3.20)
 
-set(projectname xenon-fb-conversion)
-project(${projectname})
-add_executable(${projectname})
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED TRUE)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-target_sources(${projectname} PRIVATE
-  main.cpp
-  glad/src/glad.c
-)
-target_include_directories(${projectname} PRIVATE
-  glad/include
-)
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 
-include(SDL3/x86_64-w64-mingw32/lib/cmake/SDL3/SDL3Config.cmake)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-find_package(SDL3 REQUIRED)
+project(xenon-fb-conversion)
 
+add_subdirectory(third_party)
+
+find_package(SDL3 3.2.4 CONFIG)
 find_package(OpenGL REQUIRED)
 
-target_link_libraries(${projectname} PRIVATE SDL3::SDL3 OpenGL::GL)
+# GLAD and OpenGL
+set(OPENGL third_party/glad/src/glad.c)
+include_directories(Xenon-fb-conversion third_party/glad/include)
 
-target_link_options(${projectname} PRIVATE -static)
+add_executable(xenon-fb-conversion ${OPENGL} main.cpp)
+
+target_link_libraries(xenon-fb-conversion PRIVATE SDL3::SDL3 OpenGL::GL)
