@@ -24,7 +24,7 @@ SDL_GLContext context;
 GLuint texture, shaderProgram, pixelBuffer;
 GLuint dummyVAO, renderShaderProgram;
 
-int initSDL(const char* windowName, const int w, const int h, SDL_WindowFlags flags) {
+int initSDL(const char* windowName, const int w, const int h, const SDL_WindowFlags flags) {
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
@@ -113,14 +113,14 @@ void main() {
   const float scaleY = tiledHeight / float(resHeight);
 
   // Map to source resolution
-  int srcX = int(float(texel_pos.x) * scaleX);
-  int srcY = int(float(texel_pos.y) * scaleY);
+  const int srcX = int(float(texel_pos.x) * scaleX);
+  const int srcY = int(float(texel_pos.y) * scaleY);
 
   // God only knows how this indexing works
-  int stdIndex = (srcY * tiledWidth + srcX);
-  int xeIndex = xeFbConvert(tiledWidth, stdIndex * 4);
+  const int stdIndex = (srcY * tiledWidth + srcX);
+  const int xeIndex = xeFbConvert(tiledWidth, stdIndex * 4);
 
-  uint packedColor = pixel_data[xeIndex];
+  const uint packedColor = pixel_data[xeIndex];
   imageStore(o_texture, texel_pos, uvec4(packedColor, 0, 0, 0));
 })";
 
@@ -273,7 +273,7 @@ void shutdownRender() {
 int main() {
   std::cout << "Width: " << resWidth << std::endl;
   std::cout << "Height: " << resHeight << std::endl;
-  SDL_WindowFlags flags = SDL_WINDOW_OPENGL;
+  constexpr SDL_WindowFlags flags = SDL_WINDOW_OPENGL;
   if (initSDL("Xenon FB Conversion", resWidth, resHeight, flags) != 0) {
     return 1;
   }
@@ -281,8 +281,9 @@ int main() {
   std::ifstream f("fbmem.bin", std::ios::in | std::ios::binary);
 
   if (!f) {
-    std::cout << "Failed to open framebuffer dump!" << std::endl;
+    std::cout << std::endl << "Failed to open framebuffer dump!" << std::endl;
   } else {
+    std::cout << std::endl << "Framebuffer dump loaded!" << std::endl;
     f.read(reinterpret_cast<char*>(buffer.get()), pitch * 4);
   }
   f.close();
