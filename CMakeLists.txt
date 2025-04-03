@@ -24,6 +24,10 @@ find_package(OpenGL REQUIRED)
 set(OPENGL third_party/glad/src/glad.c)
 include_directories(Xenon-fb-conversion third_party/glad/include)
 
-add_executable(xenon-fb-conversion ${OPENGL} main.cpp)
+add_executable(xenon-fb-conversion ${OPENGL} src/main.cpp)
 
 target_link_libraries(xenon-fb-conversion PRIVATE SDL3::SDL3 OpenGL::GL)
+
+if (WIN32)
+  target_sources(xenon-fb-conversion PRIVATE src/Xenon.rc)
+endif()
